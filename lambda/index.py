@@ -1,4 +1,3 @@
-# lambda/index.py
 import json
 import os
 import boto3
@@ -7,6 +6,8 @@ from botocore.exceptions import ClientError
 import urllib.request  # 標準ライブラリのurllib.requestを使用
 from urllib.error import URLError, HTTPError
 
+# グローバル変数の初期化
+bedrock_client = None
 
 # Lambda コンテキストからリージョンを抽出する関数
 def extract_region_from_arn(arn):
@@ -17,7 +18,7 @@ def extract_region_from_arn(arn):
     return "us-east-1"  # デフォルト値
 
 # FastAPIへのHTTPリクエスト
-API_ENDPOINT = os.environ.get("API_ENDPOINT", "https://9410-34-58-242-14.ngrok-free.app/generate")
+API_ENDPOINT = os.environ.get("API_ENDPOINT", "https://a1ae-34-124-132-250.ngrok-free.app/generate")
 
 def lambda_handler(event, context):
     try:
@@ -76,8 +77,8 @@ def lambda_handler(event, context):
         # HTTPリクエストオブジェクトを作成
         req = urllib.request.Request(API_ENDPOINT, data=data, headers=headers, method='POST')
         
-        # APIリクエストを送信して応答を取得
-        with urllib.request.urlopen(req) as response:
+        # APIリクエストを送信して応答を取得 - タイムアウト設定を追加 (30秒)
+        with urllib.request.urlopen(req, timeout=30) as response:
             response_data = response.read()
             response_body = json.loads(response_data.decode('utf-8'))
         
@@ -114,6 +115,8 @@ def lambda_handler(event, context):
         }
     except HTTPError as error:
         print(f"HTTP Error: {error.code} - {error.reason}")
+        error_body = error.read().decode('utf-8')  # エラーレスポンスの本文を読む
+        print(f"Error Response Body:\n{error_body}")
         return {
             "statusCode": 500,
             "headers": {
@@ -124,11 +127,16 @@ def lambda_handler(event, context):
             },
             "body": json.dumps({
                 "success": False,
-                "error": f"API Error: {error.code} - {error.reason}"
+                "error": f"API Error: {error.code} - {error.reason}",
+                "details": error_body  # 詳細エラーも返す
             })
-        }
+        }       
     except URLError as error:
-        print(f"URL Error: {error.reason}")
+        print(f"URL Error: {str(error)}")
+        # タイムアウトエラーをより明確に処理
+        error_message = str(error)
+        if "timed out" in error_message:
+            print("Request timed out - consider increasing Lambda timeout or checking API endpoint performance")
         return {
             "statusCode": 500,
             "headers": {
@@ -139,10 +147,10 @@ def lambda_handler(event, context):
             },
             "body": json.dumps({
                 "success": False,
-                "error": f"Connection Error: {error.reason}"
+                "error": f"Connection Error: {error_message}",
+                "suggestion": "API endpoint may be unresponsive or too slow to respond within timeout limits."
             })
         }
-        
     except Exception as error:
         print("Error:", str(error))
         
